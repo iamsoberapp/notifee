@@ -1,3 +1,10 @@
+> [!CAUTION]
+> Notifee is no longer actively maintained. Please see [this issue](https://github.com/invertase/notifee/issues/1254#issuecomment-3456588135) for more context.
+>
+> We recommend that users migrate to [expo-notifications](https://github.com/expo/expo/tree/main/packages/expo-notifications) for a supported experience within the React Native ecosystem. Alternatively, see the community-maintained fork [react-native-notify-kit](https://github.com/marcocrupi/react-native-notify-kit) which serves as a drop-in replacement for Notifee.
+>
+> Thank you for the continued support and contributions over the past 7 years on this project.
+
 <!-- markdownlint-disable MD033 -->
 <p align="center">
   <a href="https://invertase.io">
