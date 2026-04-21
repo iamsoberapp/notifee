@@ -1,0 +1,4 @@
+version.ts
+dist
+node_modules
+plugin/build
