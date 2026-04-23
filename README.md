@@ -1,3 +1,50 @@
+## iamsoberapp fork notes
+
+This fork is consumed directly via git URL (not `npm publish`), so a few upstream publish-time steps are done manually here and committed:
+
+1. `ios/NotifeeCore/` is vendored in this repo. Upstream this is in `.gitignore`, because `build_ios_core.sh` copies it into the RN package at publish time.
+2. `dist/` is committed. Upstream builds it in the `prepare` hook, which our consumer disables via `enableScripts: false` in its `.yarnrc.yml`.
+
+### Local dev loop
+
+When iterating on a change, you don't need to round-trip through GitHub for each rebuild. Two options:
+
+**Edit in `node_modules` directly** (fastest for small changes). The consumer pulls the full checkout via git URL, so `node_modules/@notifee/react-native/` has everything — `src/`, `dist/`, `ios/`, `android/`.
+
+- **iOS native**: Xcode recompiles `ios/NotifeeCore/*` and `ios/RNNotifee/*` on every app build. Edit and rebuild. No `pod install` needed unless you touch a podspec.
+- **Android native**: Gradle recompiles `android/src/**` on every app build. Edit and rebuild.
+- **TypeScript**: Metro serves from `dist/`. Run `yarn build` inside the package directory, then restart Metro with `--reset-cache`.
+
+Two gotchas:
+- `yarn install` in the consumer wipes your edits. Easy to lose work if you forget and install another dep mid-flow.
+- There's no `git status` inside `node_modules`, so when the change is ready you have to copy it back to a clone of this fork before committing.
+
+**Point the consumer at a local clone** (safer for multi-file changes). In the consumer's `app/package.json`, swap the git URL for a local path — absolute or relative (resolved from `app/package.json`):
+
+```
+"@notifee/react-native": "portal:../../path-to-repo/notifee"
+```
+
+Then `yarn install` and `cd ios && pod install` in the consumer. Edits now live in your fork checkout from the start — `yarn install` doesn't touch them and `git status` shows exactly what's pending.
+
+### Publishing a change
+
+1. Edit files in a clone of this fork.
+2. For TypeScript changes, run `yarn install && yarn build` and commit `src/` and `dist/`. For native changes (iOS `ios/NotifeeCore/*`, `ios/RNNotifee/*`. Android `android/src/**`), just edit and commit — no build step, the consuming app compiles them.
+3. Push, then take note of the commit SHA.
+4. In the consumer run:
+
+   ```
+   yarn add "@notifee/react-native@ssh://git@github.com:iamsoberapp/notifee#<sha>"
+   ```
+
+5. Then run `cd ios && pod install` for iOS and `cd android && ./sbin/gradlew clean && cd ../ && npx react-native run-android.` for android.
+
+Note: pod install won't mention Notifee when you bump the consumer's SHA — the fork's package.json version is frozen at 7.8.0, so CocoaPods sees no version change even though
+▎  the path-based pod picks up the new sources.
+
+The prebuilt core aar at `android/libs/app/notifee/core/.../core-*.aar` is proprietary and unchanged from upstream — don't touch it.
+
 <p align="center">
   <a href="https://notifee.app">
     <img width="160px" src="https://notifee.app/logo-icon.png"><br/>
