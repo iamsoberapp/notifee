@@ -241,20 +241,22 @@ class NotifeeReactUtils {
     }
   }
 
-  static void sendEvent(String eventName, WritableMap eventMap) {
+  static boolean sendEvent(String eventName, WritableMap eventMap) {
     try {
       ReactContext reactContext = getReactContext();
 
       if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
-        return;
+        return false;
       }
 
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
           .emit(eventName, eventMap);
+      return true;
 
     } catch (Exception e) {
       Log.e("SEND_EVENT", "", e);
+      return false;
     }
   }
 
