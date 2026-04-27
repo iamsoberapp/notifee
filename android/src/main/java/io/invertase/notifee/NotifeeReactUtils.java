@@ -115,6 +115,9 @@ class NotifeeReactUtils {
     return reactInstanceManager.getCurrentReactContext();
   }
 
+  private static final long BRIDGE_READY_POLL_INTERVAL_MS = 50;
+  private static final int BRIDGE_READY_MAX_ATTEMPTS = 50;
+
   private static void initializeReactContext(GenericCallback callback) {
     ReactNativeHost reactNativeHost =
         ((ReactApplication) EventSubscriber.getContext()).getReactNativeHost();
@@ -126,7 +129,7 @@ class NotifeeReactUtils {
           @Override
           public void onReactContextInitialized(final ReactContext reactContext) {
             reactInstanceManager.removeReactInstanceEventListener(this);
-            new Handler(Looper.getMainLooper()).postDelayed(callback::call, 100);
+            waitForActiveCatalystInstance(reactContext, callback, 0);
           }
         });
 
@@ -135,11 +138,36 @@ class NotifeeReactUtils {
     }
   }
 
-  static void clearRunningHeadlessTasks() {
-    for (int i = 0; i < headlessTasks.size(); i++) {
-      GenericCallback callback = headlessTasks.valueAt(i);
+  private static void waitForActiveCatalystInstance(
+      ReactContext reactContext, GenericCallback callback, int attempt) {
+    if (reactContext.hasActiveCatalystInstance()) {
       callback.call();
-      headlessTasks.remove(i);
+      return;
+    }
+    if (attempt >= BRIDGE_READY_MAX_ATTEMPTS) {
+      Log.w(
+          "NotifeeReactUtils",
+          "Catalyst instance not active after "
+              + (BRIDGE_READY_MAX_ATTEMPTS * BRIDGE_READY_POLL_INTERVAL_MS)
+              + "ms; attempting task anyway");
+      callback.call();
+      return;
+    }
+    new Handler(Looper.getMainLooper())
+        .postDelayed(
+            () -> waitForActiveCatalystInstance(reactContext, callback, attempt + 1),
+            BRIDGE_READY_POLL_INTERVAL_MS);
+  }
+
+  static void clearRunningHeadlessTasks() {
+    synchronized (headlessTasks) {
+      for (int i = headlessTasks.size() - 1; i >= 0; i--) {
+        GenericCallback callback = headlessTasks.valueAt(i);
+        headlessTasks.removeAt(i);
+        if (callback != null) {
+          callback.call();
+        }
+      }
     }
   }
 
@@ -150,28 +178,60 @@ class NotifeeReactUtils {
       @Nullable GenericCallback taskCompletionCallback) {
     GenericCallback callback =
         () -> {
-          HeadlessJsTaskContext taskContext = HeadlessJsTaskContext.getInstance(getReactContext());
+          ReactContext reactContext = getReactContext();
+          if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
+            Log.w(
+                "NotifeeReactUtils",
+                "Cannot start headless task '"
+                    + taskName
+                    + "': React context is null or inactive");
+            if (taskCompletionCallback != null) {
+              taskCompletionCallback.call();
+            }
+            return;
+          }
+
+          HeadlessJsTaskContext taskContext = HeadlessJsTaskContext.getInstance(reactContext);
           HeadlessJsTaskConfig taskConfig =
               new HeadlessJsTaskConfig(taskName, taskData, taskTimeout, true);
 
+          boolean addedListener = false;
           synchronized (headlessTasks) {
             if (headlessTasks.size() == 0) {
               taskContext.addTaskEventListener(headlessTasksListener);
+              addedListener = true;
             }
           }
 
-          headlessTasks.put(
-              taskContext.startTask(taskConfig),
-              () -> {
-                synchronized (headlessTasks) {
-                  if (headlessTasks.size() == 0) {
-                    taskContext.removeTaskEventListener(headlessTasksListener);
+          try {
+            headlessTasks.put(
+                taskContext.startTask(taskConfig),
+                () -> {
+                  synchronized (headlessTasks) {
+                    if (headlessTasks.size() == 0) {
+                      taskContext.removeTaskEventListener(headlessTasksListener);
+                    }
                   }
+                  if (taskCompletionCallback != null) {
+                    taskCompletionCallback.call();
+                  }
+                });
+          } catch (Exception e) {
+            Log.e(
+                "NotifeeReactUtils",
+                "Failed to start headless task '" + taskName + "'",
+                e);
+            if (addedListener) {
+              synchronized (headlessTasks) {
+                if (headlessTasks.size() == 0) {
+                  taskContext.removeTaskEventListener(headlessTasksListener);
                 }
-                if (taskCompletionCallback != null) {
-                  taskCompletionCallback.call();
-                }
-              });
+              }
+            }
+            if (taskCompletionCallback != null) {
+              taskCompletionCallback.call();
+            }
+          }
         };
 
     if (getReactContext() == null) {
@@ -181,20 +241,22 @@ class NotifeeReactUtils {
     }
   }
 
-  static void sendEvent(String eventName, WritableMap eventMap) {
+  static boolean sendEvent(String eventName, WritableMap eventMap) {
     try {
       ReactContext reactContext = getReactContext();
 
       if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
-        return;
+        return false;
       }
 
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
           .emit(eventName, eventMap);
+      return true;
 
     } catch (Exception e) {
       Log.e("SEND_EVENT", "", e);
+      return false;
     }
   }
 

@@ -34,6 +34,20 @@ public class NotifeeEventSubscriber implements EventListener {
 
   @Override
   public void onNotificationEvent(NotificationEvent notificationEvent) {
+    if (isAppInForeground()) {
+      WritableMap foregroundMap = buildNotificationEventMap(notificationEvent, false);
+      if (NotifeeReactUtils.sendEvent(NOTIFICATION_EVENT_KEY, foregroundMap)) {
+        return;
+      }
+      // ProcessLifecycleOwner reported RESUMED but the React bridge is null or
+      // mid-init/mid-teardown; route via the headless task so the event is not dropped.
+    }
+    WritableMap headlessMap = buildNotificationEventMap(notificationEvent, true);
+    NotifeeReactUtils.startHeadlessTask(NOTIFICATION_EVENT_KEY, headlessMap, 60000, null);
+  }
+
+  private WritableMap buildNotificationEventMap(
+      NotificationEvent notificationEvent, boolean headless) {
     WritableMap eventMap = Arguments.createMap();
     WritableMap eventDetailMap = Arguments.createMap();
     eventMap.putInt(KEY_TYPE, notificationEvent.getType());
@@ -55,14 +69,8 @@ public class NotifeeEventSubscriber implements EventListener {
     }
 
     eventMap.putMap(KEY_DETAIL, eventDetailMap);
-
-    if (isAppInForeground()) {
-      eventMap.putBoolean(KEY_HEADLESS, false);
-      NotifeeReactUtils.sendEvent(NOTIFICATION_EVENT_KEY, eventMap);
-    } else {
-      eventMap.putBoolean(KEY_HEADLESS, true);
-      NotifeeReactUtils.startHeadlessTask(NOTIFICATION_EVENT_KEY, eventMap, 60000, null);
-    }
+    eventMap.putBoolean(KEY_HEADLESS, headless);
+    return eventMap;
   }
 
   @Override
@@ -72,6 +80,19 @@ public class NotifeeEventSubscriber implements EventListener {
 
   @Override
   public void onBlockStateEvent(BlockStateEvent blockStateEvent) {
+    if (isAppInForeground()) {
+      WritableMap foregroundMap = buildBlockStateEventMap(blockStateEvent, false);
+      if (NotifeeReactUtils.sendEvent(NOTIFICATION_EVENT_KEY, foregroundMap)) {
+        return;
+      }
+      // Bridge inactive despite RESUMED lifecycle; route via headless task instead.
+    }
+    WritableMap headlessMap = buildBlockStateEventMap(blockStateEvent, true);
+    NotifeeReactUtils.startHeadlessTask(
+        NOTIFICATION_EVENT_KEY, headlessMap, 0, blockStateEvent::setCompletionResult);
+  }
+
+  private WritableMap buildBlockStateEventMap(BlockStateEvent blockStateEvent, boolean headless) {
     WritableMap eventMap = Arguments.createMap();
     WritableMap eventDetailMap = Arguments.createMap();
 
@@ -94,15 +115,8 @@ public class NotifeeEventSubscriber implements EventListener {
     }
 
     eventMap.putMap(KEY_DETAIL, eventDetailMap);
-
-    if (isAppInForeground()) {
-      eventMap.putBoolean(KEY_HEADLESS, false);
-      NotifeeReactUtils.sendEvent(NOTIFICATION_EVENT_KEY, eventMap);
-    } else {
-      eventMap.putBoolean(KEY_HEADLESS, true);
-      NotifeeReactUtils.startHeadlessTask(
-          NOTIFICATION_EVENT_KEY, eventMap, 0, blockStateEvent::setCompletionResult);
-    }
+    eventMap.putBoolean(KEY_HEADLESS, headless);
+    return eventMap;
   }
 
   @Override
