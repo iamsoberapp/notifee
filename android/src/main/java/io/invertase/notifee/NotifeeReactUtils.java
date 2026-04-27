@@ -115,6 +115,9 @@ class NotifeeReactUtils {
     return reactInstanceManager.getCurrentReactContext();
   }
 
+  private static final long BRIDGE_READY_POLL_INTERVAL_MS = 50;
+  private static final int BRIDGE_READY_MAX_ATTEMPTS = 50;
+
   private static void initializeReactContext(GenericCallback callback) {
     ReactNativeHost reactNativeHost =
         ((ReactApplication) EventSubscriber.getContext()).getReactNativeHost();
@@ -126,13 +129,34 @@ class NotifeeReactUtils {
           @Override
           public void onReactContextInitialized(final ReactContext reactContext) {
             reactInstanceManager.removeReactInstanceEventListener(this);
-            new Handler(Looper.getMainLooper()).postDelayed(callback::call, 100);
+            waitForActiveCatalystInstance(reactContext, callback, 0);
           }
         });
 
     if (!reactInstanceManager.hasStartedCreatingInitialContext()) {
       reactInstanceManager.createReactContextInBackground();
     }
+  }
+
+  private static void waitForActiveCatalystInstance(
+      ReactContext reactContext, GenericCallback callback, int attempt) {
+    if (reactContext.hasActiveCatalystInstance()) {
+      callback.call();
+      return;
+    }
+    if (attempt >= BRIDGE_READY_MAX_ATTEMPTS) {
+      Log.w(
+          "NotifeeReactUtils",
+          "Catalyst instance not active after "
+              + (BRIDGE_READY_MAX_ATTEMPTS * BRIDGE_READY_POLL_INTERVAL_MS)
+              + "ms; attempting task anyway");
+      callback.call();
+      return;
+    }
+    new Handler(Looper.getMainLooper())
+        .postDelayed(
+            () -> waitForActiveCatalystInstance(reactContext, callback, attempt + 1),
+            BRIDGE_READY_POLL_INTERVAL_MS);
   }
 
   static void clearRunningHeadlessTasks() {
