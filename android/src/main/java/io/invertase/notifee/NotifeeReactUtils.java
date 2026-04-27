@@ -154,28 +154,60 @@ class NotifeeReactUtils {
       @Nullable GenericCallback taskCompletionCallback) {
     GenericCallback callback =
         () -> {
-          HeadlessJsTaskContext taskContext = HeadlessJsTaskContext.getInstance(getReactContext());
+          ReactContext reactContext = getReactContext();
+          if (reactContext == null || !reactContext.hasActiveCatalystInstance()) {
+            Log.w(
+                "NotifeeReactUtils",
+                "Cannot start headless task '"
+                    + taskName
+                    + "': React context is null or inactive");
+            if (taskCompletionCallback != null) {
+              taskCompletionCallback.call();
+            }
+            return;
+          }
+
+          HeadlessJsTaskContext taskContext = HeadlessJsTaskContext.getInstance(reactContext);
           HeadlessJsTaskConfig taskConfig =
               new HeadlessJsTaskConfig(taskName, taskData, taskTimeout, true);
 
+          boolean addedListener = false;
           synchronized (headlessTasks) {
             if (headlessTasks.size() == 0) {
               taskContext.addTaskEventListener(headlessTasksListener);
+              addedListener = true;
             }
           }
 
-          headlessTasks.put(
-              taskContext.startTask(taskConfig),
-              () -> {
-                synchronized (headlessTasks) {
-                  if (headlessTasks.size() == 0) {
-                    taskContext.removeTaskEventListener(headlessTasksListener);
+          try {
+            headlessTasks.put(
+                taskContext.startTask(taskConfig),
+                () -> {
+                  synchronized (headlessTasks) {
+                    if (headlessTasks.size() == 0) {
+                      taskContext.removeTaskEventListener(headlessTasksListener);
+                    }
                   }
+                  if (taskCompletionCallback != null) {
+                    taskCompletionCallback.call();
+                  }
+                });
+          } catch (Exception e) {
+            Log.e(
+                "NotifeeReactUtils",
+                "Failed to start headless task '" + taskName + "'",
+                e);
+            if (addedListener) {
+              synchronized (headlessTasks) {
+                if (headlessTasks.size() == 0) {
+                  taskContext.removeTaskEventListener(headlessTasksListener);
                 }
-                if (taskCompletionCallback != null) {
-                  taskCompletionCallback.call();
-                }
-              });
+              }
+            }
+            if (taskCompletionCallback != null) {
+              taskCompletionCallback.call();
+            }
+          }
         };
 
     if (getReactContext() == null) {
