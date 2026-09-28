@@ -1,0 +1,147 @@
+import org.gradle.internal.jvm.Jvm
+
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath 'com.android.tools.build:gradle:7.0.3'
+  }
+}
+
+apply plugin: 'com.android.library'
+
+
+ext {
+
+  jvmVersion = Jvm.current().javaVersion.majorVersion
+  if (jvmVersion != "8" && jvmVersion != "11" && jvmVersion != "14") {
+    println "\n\n\n"
+    println "**************************************************************************************************************"
+    println "\n\n\n"
+    println "ERROR: Notifee builds with JVM LTS and current releases (currently major version 11, or 14)."
+    println "  Incompatible major version detected: '" + jvmVersion + "'"
+    println "\n\n\n"
+    println "**************************************************************************************************************"
+    println "\n\n\n"
+    System.exit(1)
+  }
+  ciBuild = System.getenv("CI") == "true" // works for Travis CI or Github Actions
+
+  // Virtualized Environment like CI may report host CPU counts vs guest, but runs 2 cores
+  // everyone else gets 50% of cores to account for SMT which doesn't help this workload
+  gradleTestMaxParallelForks = 1
+  if (!ciBuild) {
+    gradleTestMaxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
+  }
+}
+
+android {
+  compileSdkVersion 33
+  testOptions {
+    unitTests.returnDefaultValues = true
+  }
+  defaultConfig {
+    minSdkVersion 20
+    targetSdkVersion 33
+    versionCode 1
+    versionName "1.0"
+
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    consumerProguardFiles 'consumer-rules.pro'
+
+    javaCompileOptions {
+      annotationProcessorOptions {
+        arguments = ["room.schemaLocation":
+                             "$projectDir/schemas".toString(),
+                             eventBusIndex: 'app.notifee.core.EventBusIndex']
+      }
+    }
+  }
+
+  sourceSets {
+      // Adds exported schema location as test app assets.
+      androidTest.assets.srcDirs += files("$projectDir/schemas".toString())
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled true
+      debuggable false
+      jniDebuggable false
+      zipAlignEnabled true
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_1_8
+    targetCompatibility JavaVersion.VERSION_1_8
+  }
+
+  testOptions.unitTests.all {
+    testLogging {
+      events "failed", "skipped"
+      showStackTraces = true
+      exceptionFormat = "full"
+    }
+
+    maxParallelForks = gradleTestMaxParallelForks
+    forkEvery = 40
+    maxHeapSize = "2048m"
+    minHeapSize = "1024m"
+    systemProperties['junit.jupiter.execution.parallel.enabled'] = true
+    systemProperties['junit.jupiter.execution.parallel.mode.default'] = "concurrent"
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+}
+
+dependencies {
+
+  api 'androidx.annotation:annotation:1.3.0' // https://developer.android.com/jetpack/androidx/releases/annotation
+  api 'androidx.concurrent:concurrent-futures:1.1.0' // https://developer.android.com/jetpack/androidx/releases/concurrent
+  api 'com.google.android.gms:play-services-tasks:18.0.1' // https://developers.google.com/android/guides/releases
+  api 'androidx.work:work-runtime:2.8.0' // https://developer.android.com/jetpack/androidx/releases/work
+  api 'com.facebook.fresco:fresco:2.6.0' // https://github.com/facebook/fresco/releases
+
+  def room_version = '2.5.0' // https://developer.android.com/jetpack/androidx/releases/room
+  implementation "androidx.room:room-runtime:$room_version"
+  annotationProcessor "androidx.room:room-compiler:$room_version"
+
+  def eventbus_version = '3.3.1' // https://github.com/greenrobot/EventBus/releases
+  api "org.greenrobot:eventbus:$eventbus_version"
+  annotationProcessor "org.greenrobot:eventbus-annotation-processor:$eventbus_version"
+
+  testImplementation 'junit:junit:4.13.2' // https://github.com/junit-team/junit4/releases
+  androidTestImplementation 'androidx.test.ext:junit:1.1.3' // https://developer.android.com/jetpack/androidx/releases/test
+  androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0' // see above
+  androidTestImplementation "androidx.room:room-testing:$room_version"
+  androidTestImplementation "androidx.test:monitor:1.4.0"
+}
+
+apply plugin: 'maven-publish'
+
+publishing {
+    publications {
+        aar(MavenPublication) {
+            project.tasks.publishAarPublicationToMavenLocal.dependsOn("assembleRelease")
+            groupId 'app.notifee'
+            artifactId 'core'
+            version '202108261754'
+            artifact("$buildDir/outputs/aar/${project.getName()}-release.aar")
+        }
+    }
+
+    repositories {
+        maven {
+            url = "$rootDir/../android/libs/"
+        }
+        project.tasks.publishAarPublicationToMavenRepository.dependsOn("assembleRelease")
+
+    }
+}

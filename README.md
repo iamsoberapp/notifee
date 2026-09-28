@@ -43,7 +43,13 @@ Then `yarn install` and `cd ios && pod install` in the consumer. Edits now live 
 Note: pod install won't mention Notifee when you bump the consumer's SHA — the fork's package.json version is frozen at 7.8.0, so CocoaPods sees no version change even though
 ▎  the path-based pod picks up the new sources.
 
-The prebuilt core aar at `android/libs/app/notifee/core/.../core-*.aar` is proprietary and unchanged from upstream — don't touch it.
+### Android core aar
+
+The prebuilt core aar at `android/libs/app/notifee/core/202108261754/core-202108261754.aar` is compiled from `android-core/`, the unmodified upstream 7.8.0 `android/` source (Apache 2.0). A clean build of it is byte-identical to the aar upstream shipped. To change the core:
+
+1. Edit `android-core/src/**`.
+2. Build with JDK 11 (the build script rejects newer JDKs), for example `JAVA_HOME=<jdk11> ANDROID_HOME=<sdk> android-core/gradlew -p android-core publish`. This writes the aar and its checksums straight into `android/libs/`.
+3. Commit the source change and the new aar together, then publish as above.
 
 <p align="center">
   <a href="https://notifee.app">
