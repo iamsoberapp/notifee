@@ -146,20 +146,18 @@ class NotifeeAlarmManager {
 
     AlarmManager alarmManager = AlarmUtils.getAlarmManager();
 
-    // Verify we can call setExact APIs to avoid a crash, but it requires an Android S+ symbol
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      if (!alarmManager.canScheduleExactAlarms()) {
-        System.err.println(
-            "Missing SCHEDULE_EXACT_ALARM permission. Trigger not scheduled. See:"
-                + " https://notifee.app/react-native/docs/triggers#android-12-limitations");
-        return;
-      }
-    }
-
     // Ensure timestamp is always in the future when scheduling the alarm
     timestampTrigger.setNextTimestamp();
 
     TimestampTriggerModel.AlarmType alarmType = timestampTrigger.getAlarmType();
+
+    // Verify we can call setExact APIs to avoid a crash, but it requires an Android S+ symbol
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        && !alarmManager.canScheduleExactAlarms()
+        && alarmType != TimestampTriggerModel.AlarmType.SET) {
+      // Exact alarms are off by default on Android 14+, so downgrade rather than drop the trigger.
+      alarmType = TimestampTriggerModel.AlarmType.SET_AND_ALLOW_WHILE_IDLE;
+    }
 
     switch (alarmType) {
       case SET:
