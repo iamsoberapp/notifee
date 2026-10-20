@@ -45,11 +45,27 @@ Note: pod install won't mention Notifee when you bump the consumer's SHA — the
 
 ### Android core aar
 
-The prebuilt core aar at `android/libs/app/notifee/core/202108261754/core-202108261754.aar` is compiled from `android-core/`, the unmodified upstream 7.8.0 `android/` source (Apache 2.0). A clean build of it is byte-identical to the aar upstream shipped. To change the core:
+The prebuilt core aar at `android/libs/app/notifee/core/202108261754/core-202108261754.aar` is compiled from `android-core/`, the upstream 7.8.0 `android/` source (Apache 2.0) plus our fixes. A clean build of the untouched source (commit 98bcc06) is byte-identical to the aar upstream shipped. To change the core:
 
 1. Edit `android-core/src/**`.
-2. Build with JDK 11 (the build script rejects newer JDKs), for example `JAVA_HOME=<jdk11> ANDROID_HOME=<sdk> android-core/gradlew -p android-core publish`. This writes the aar and its checksums straight into `android/libs/`.
-3. Commit the source change and the new aar together, then publish as above.
+2. Build with JDK 11 (the build script rejects newer JDKs). This writes the aar and its checksums straight into `android/libs/`:
+
+   ```
+   JAVA_HOME=<jdk11> ANDROID_HOME=<sdk> android-core/gradlew -p android-core publish
+   ```
+
+   - `ANDROID_HOME` must be a writable SDK that has build-tools 30.0.2 (for example `~/Library/Android/sdk`). A read-only SDK such as the nix one fails because Gradle tries to install 30.0.2 into it.
+   - On Apple Silicon without Rosetta, the aapt2 that AGP 7.0.3 downloads is x86_64 and fails with "Daemon startup failed". Add `-Pandroid.aapt2FromMavenOverride=<sdk>/build-tools/36.0.0/aapt2` to use an arm64 aapt2.
+3. Check that only the classes you meant to change differ. R8 obfuscates the class names (`NotifeeAlarmManager` is `app.notifee.core.b`), and every class embeds a `pg-map-id` that changes with any edit, so compare disassembly with that id stripped, not raw bytes. Unzip `classes.jar` from the old and new aar, run `javap -p -c -l -constants` over every class in each, remove `pg-map-id` from both outputs and diff them.
+4. Test in the consumer before pushing: copy the new aar over the same path in the consumer's `node_modules/@notifee/react-native/android/libs/` and rebuild the app (`yarn install` puts the old one back).
+5. Commit the source change and the new aar together, then publish as above.
+
+Testing tips for the alarm reschedule path (`NotifeeAlarmManager.rescheduleNotifications`, run on boot):
+
+- Trigger it with a real reboot (`adb shell svc power reboot`). `RebootBroadcastReceiver` is not exported, so a shell broadcast to it is denied.
+- Stop the app with `adb shell am kill <package>`, never `am force-stop`. A force-stopped app gets no boot broadcast, and `am force-stop` also cancels its alarms.
+- Rows live in the Room database `databases/notifee_core_database` (table `work_data`, notification and trigger stored as `Parcel.marshall()` bytes). On a debug build, `adb exec-out run-as <package> cat databases/notifee_core_database` (plus the `-wal` file) copies it out. Push an edited copy back with `run-as ... cp` and delete the `-wal` and `-shm` files.
+- `adb shell dumpsys alarm | grep -c NotificationAlarmReceiver` counts armed alarms, and `adb logcat -b crash -d` shows any crash.
 
 <p align="center">
   <a href="https://notifee.app">

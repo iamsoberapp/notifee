@@ -274,7 +274,14 @@ class NotifeeAlarmManager {
               List<WorkDataEntity> workDataEntities = task.getResult();
 
               for (WorkDataEntity workDataEntity : workDataEntities) {
-                rescheduleNotification(workDataEntity);
+                try {
+                  rescheduleNotification(workDataEntity);
+                } catch (Exception e) {
+                  // Rows store marshalled Parcel bytes, which a later OS version may fail to read.
+                  Logger.e(TAG, "Failed to reschedule notification, deleting it", e);
+                  WorkDataRepository.getInstance(getApplicationContext())
+                      .deleteById(workDataEntity.getId());
+                }
               }
             });
   }
